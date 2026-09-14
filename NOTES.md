@@ -12,7 +12,7 @@ Dataset Summary
 4. and 2–3 headline numbers the authors report (sizes, counts, baseline scores). 1 million privacy preserved Claude.ai web coversations and 1 million first party API transcripts were analysed and mapped across ~20k distinct O*NET occupational tasks. 49.1% automation vs. 47.0% augmentation,77% of API transcripts show automation patterns vs. ~50% for Claude.ai, 97% of API tasks vs. 47% of Claude.ai tasks
 
 ======================================================================
-CLAIMED VS. ACTUAL -- copy into NOTES.md
+CLAIMED VS. ACTUAL
 ======================================================================
 | Platform   | Metric           |   Claimed |   Actual |   Diff (pp) | Status   |
 |:-----------|:-----------------|----------:|---------:|------------:|:---------|
