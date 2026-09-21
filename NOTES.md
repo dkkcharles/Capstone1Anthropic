@@ -12,7 +12,9 @@ Dataset Summary
 4. and 2–3 headline numbers the authors report (sizes, counts, baseline scores). 1 million privacy preserved Claude.ai web coversations and 1 million first party API transcripts were analysed and mapped across ~20k distinct O*NET occupational tasks. 49.1% automation vs. 47.0% augmentation,77% of API transcripts show automation patterns vs. ~50% for Claude.ai, 97% of API tasks vs. 47% of Claude.ai tasks
 
 ======================================================================
+
 CLAIMED VS. ACTUAL
+
 ======================================================================
 | Platform   | Metric           |   Claimed |   Actual |   Diff (pp) | Status   |
 |:-----------|:-----------------|----------:|---------:|------------:|:---------|
@@ -20,3 +22,8 @@ CLAIMED VS. ACTUAL
 | claude_ai  | augmentation_pct |      47   |    48.93 |        1.93 | Match    |
 | api        | automation_pct   |      77   |    77.37 |        0.37 | Match    |
 | api        | augmentation_pct |      12   |    12.41 |        0.41 | Match    |
+
+
+Raw Examples:
+Row: GLOBAL, 1P API, collaboration, collaboration_pct, cluster_name="directive" — This row reports what share of API collaboration-classified conversations fell into the "directive" interaction pattern globally between 04/08/2025–11/08/2025. It makes sense as a proportion since there's a matching _count row right above it with the same cluster_name. 
+Row: ABW, country, gdp_per_working_age_capita — value blank — Aruba's row for this variable, and several others (usage_count, usage_per_capita), is empty despite the country existing in the table with a usage_tier of "Minimal." This is likely a suppression rule for small-sample geographies rather than a true missing value. (To confirm by checking the data_documentation.md for a stated minimum-n threshold)
