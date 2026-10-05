@@ -1,135 +1,139 @@
-from pathlib import Path
+"""
+inventory.py
+
+Inventory of every release file in data/ (size, rows, columns with types,
+missing-value rates) plus a claimed-vs-actual check of each report's
+headline numbers. Release definitions and metric logic live in releases.py.
+
+Run from the repo root:  python src/inventory.py
+"""
+
 import pandas as pd
 
-DATA_DIR = Path("data")
+from releases import (
+    RELEASES, PLATFORMS, load, collaboration_patterns, automation_split,
+    published_buckets, onet_task_shares, use_case_shares,
+)
 
-FILES = {
-    "claude_ai": DATA_DIR / "aei_enriched_claude_ai_2025-08-04_to_2025-08-11.csv",
-    "api": DATA_DIR / "aei_raw_1p_api_2025-08-04_to_2025-08-11.csv",
-}
+# Headline numbers from each report, used as verification targets.
+# measure is one of: automation_raw, augmentation_raw (share of ALL
+# conversations), directive (share of ALL conversations), top10_tasks
+# (share of conversations in the 10 most common O*NET tasks).
+TARGETS = [
+    # 2025-09-15 report (Aug 4-11, 2025 sample)
+    ("2025-09-15", "claude_ai", "automation_raw", 49.1, "49.1% automation"),
+    ("2025-09-15", "claude_ai", "augmentation_raw", 47.0, "47.0% augmentation"),
+    ("2025-09-15", "api", "automation_raw", 77.0, "77% of API transcripts show automation"),
+    ("2025-09-15", "api", "augmentation_raw", 12.0, "12% augmentation"),
+    # 2026-01-15 report (Nov 13-20, 2025 sample)
+    ("2026-01-15", "claude_ai", "automation_raw", 45.0, "automated fell 4pp to 45%"),
+    ("2026-01-15", "claude_ai", "augmentation_raw", 52.0, "augmented jumped 5pp to 52%"),
+    ("2026-01-15", "claude_ai", "directive", 32.0, "directive fell 7pp to 32%"),
+    ("2026-01-15", "api", "automation_raw", 75.0, "three-quarters automation"),
+    ("2026-01-15", "claude_ai", "top10_tasks", 24.0, "top 10 tasks = 24% of conversations"),
+    ("2026-01-15", "api", "top10_tasks", 32.0, "top ten tasks = 32% of traffic"),
+    # 2026-03-24 report (Feb 5-12, 2026 sample)
+    ("2026-03-24", "claude_ai", "top10_tasks", 19.0, "top 10 tasks went from 24% to 19%"),
+    ("2026-03-24", "api", "top10_tasks", 33.0, "top 10 tasks 33% of traffic, up from 28%"),
+    # 2026-06-26 report gives no automation/augmentation headline number.
+]
+ONET_TASK_TARGET = 19530  # Total O*NET tasks, original paper p.18, Figure 9.
 
-AUTOMATION_PATTERNS = {"directive", "feedback loop"}
-AUGMENTATION_PATTERNS = {"task iteration", "learning", "validation"}
-EXCLUDE_PATTERNS = {"none", "not_classified"}
-
-
-TARGETS = {
-    "claude_ai": {"automation_pct": 49.1, "augmentation_pct": 47.0},
-    "api": {"automation_pct": 77.0, "augmentation_pct": 12.0},
-}
-ONET_TASK_TARGET = 19530  # p18 Figure 9.
- 
 TOLERANCE_PCT_POINTS = 2.0
 
 # File / structural inventory
 
-def inventory_file(label: str, path: Path) -> pd.DataFrame:
+def inventory_file(label: str, path) -> pd.DataFrame:
     print(f"\n{'=' * 70}\nFILE: {label}  ->  {path}\n{'=' * 70}")
- 
+
     if not path.exists():
         print(f"  !! FILE NOT FOUND at {path}")
         return None
- 
+
     size_mb = path.stat().st_size / (1024 * 1024)
-    df = pd.read_csv(path, low_memory=False)
+    df = load(path)
     row_count, col_count = len(df), len(df.columns)
- 
+
     print(f"  Size: {size_mb:.2f} MB")
     print(f"  Rows: {row_count:,}")
-    print(f"  Columns ({col_count}): {list(df.columns)}")
-    print("  Missing-value rate per column:")
+    print(f"  Columns ({col_count}):")
     for col in df.columns:
         pct = df[col].isna().mean() * 100
         flag = "  <-- has missing values" if pct > 0 else ""
-        print(f"    {col:<25} {pct:>6.2f}%{flag}")
- 
+        print(f"    {col:<22} {str(df[col].dtype):<8} missing {pct:>6.2f}%{flag}")
+
+    geo_col = "geography" if "geography" in df.columns else "geo_level"
+    print(f"  Rows by date_start: {df['date_start'].value_counts().sort_index().to_dict()}")
+    print(f"  Rows by {geo_col}: {df[geo_col].value_counts().to_dict()}")
+
     return df
-
-# Automation / augmentation split
-
-def compute_split_from_five_patterns(df: pd.DataFrame, label: str) -> dict:
-    """Bucket the five raw collaboration patterns into automation/augmentation.
-    Used for the API file, which has no pre-computed rollup facet."""
-    collab = df[(df["facet"] == "collaboration") & (df["variable"] == "collaboration_pct")]
-    collab = collab[~collab["cluster_name"].isin(EXCLUDE_PATTERNS)]
-    totals = collab.groupby("cluster_name")["value"].sum()
- 
-    automation_pct = totals[totals.index.isin(AUTOMATION_PATTERNS)].sum()
-    augmentation_pct = totals[totals.index.isin(AUGMENTATION_PATTERNS)].sum()
- 
-    print(f"\n  [{label}] pattern shares (classified conversations only):")
-    print(f"    {totals.to_string()}")
-    print(f"  [{label}] automation%={automation_pct:.2f}  "
-          f"augmentation%={augmentation_pct:.2f}  "
-          f"(sums to {automation_pct + augmentation_pct:.2f}, "
-          f"remainder is unclassified)")
- 
-    return {"automation_pct": automation_pct, "augmentation_pct": augmentation_pct}
- 
- 
-def compute_split_from_rollup(df: pd.DataFrame, label: str) -> dict:
-    """Read the pre-computed collaboration_automation_augmentation facet at
-    the global level. Used for Claude.ai. Note: this facet's percentages are
-    renormalized over classified conversations only (they sum to 100%),
-    while the report's 49.1/47.0 headline sums to 96.1% (of all conversations,
-    including ~3.9% unclassified) -- so a small, expected gap remains even
-    on an exact match. See NOTES.md for the full explanation."""
-    aa = df[df["facet"] == "collaboration_automation_augmentation"]
-    global_row = aa[aa["geography"] == "global"]
- 
-    pivot = global_row.set_index("cluster_name")["value"]
-    automation_pct = pivot.get("automation", float("nan"))
-    augmentation_pct = pivot.get("augmentation", float("nan"))
- 
-    print(f"\n  [{label}] global automation/augmentation "
-          f"(renormalized over classified conversations):")
-    print(f"    automation%={automation_pct:.2f}  augmentation%={augmentation_pct:.2f}")
- 
-    return {"automation_pct": automation_pct, "augmentation_pct": augmentation_pct}
-
-
-# Claimed vs. actual comparison
-
-def compare_to_targets(label: str, actual: dict) -> list:
-    rows = []
-    target = TARGETS.get(label, {})
-    for metric, computed in actual.items():
-        target_val = target.get(metric)
-        if target_val is None or pd.isna(computed):
-            continue
-        diff = abs(computed - target_val)
-        status = "Match" if diff <= TOLERANCE_PCT_POINTS else "MISMATCH"
-        rows.append((label, metric, target_val, round(computed, 2), round(diff, 2), status))
-    return rows
-
 
 
 def main():
-    dataframes = {label: inventory_file(label, path) for label, path in FILES.items()}
- 
-    print(f"\n{'=' * 70}\nAUTOMATION / AUGMENTATION SPLIT\n{'=' * 70}")
-    actual_claude = compute_split_from_rollup(dataframes["claude_ai"], "claude_ai")
-    actual_api = compute_split_from_five_patterns(dataframes["api"], "api")
- 
-    # O*NET task count check (bonus, per Task 3's headline "~20k tasks")
-    onet_claude = dataframes["claude_ai"]
-    onet_task_count = onet_claude[onet_claude["facet"] == "onet_task"]["cluster_name"].nunique()
-    print(f"\n  Distinct onet_task cluster_name values in Claude.ai file: {onet_task_count:,}")
-    print(f"  (Target from original paper, p.18: {ONET_TASK_TARGET:,} total O*NET tasks. "
-          f"This sample may only cover a subset with observed usage, so a lower "
-          f"count here is expected, not necessarily a mismatch.)")
- 
+    measures = {}  # (release, platform) -> {measure: {period: value}}
+    split_rows, size_rows = [], []
+
+    for release in RELEASES:
+        for platform in PLATFORMS:
+            path = release["files"][platform]
+            df = inventory_file(f"{release['release']} / {platform}", path)
+            if df is None:
+                continue
+            size_rows.append((release["release"], platform, path.name,
+                              round(path.stat().st_size / 2**20, 1), len(df)))
+
+            patterns = collaboration_patterns(df, release)
+            split = automation_split(patterns)
+            tasks = onet_task_shares(df, release)
+            print(f"\n  Collaboration patterns (% of all conversations):\n"
+                  f"{patterns.round(2).to_string()}")
+            print(f"  Automation split:\n{split.round(2).to_string()}")
+            if release["schema"] == "monthly":
+                print(f"  Published collaboration_bucket_* (cross-check):\n"
+                      f"{published_buckets(df).round(2).to_string()}")
+            use_case = use_case_shares(df, release)
+            if not use_case.empty:
+                print(f"  Use case (% of conversations):\n{use_case.round(2).to_string()}")
+            for period, shares in tasks.items():
+                print(f"  O*NET tasks {period}: {shares.index.nunique():,} distinct, "
+                      f"shares sum to {shares.sum():.2f}%, "
+                      f"top 10 = {shares.nlargest(10).sum():.2f}%")
+
+            measures[(release["release"], platform)] = {
+                "automation_raw": split["automation_raw"].to_dict(),
+                "augmentation_raw": split["augmentation_raw"].to_dict(),
+                "directive": patterns["directive"].to_dict(),
+                "top10_tasks": {p: s.nlargest(10).sum() for p, s in tasks.items()},
+            }
+            for period, row in split.iterrows():
+                split_rows.append((release["release"], period, platform,
+                                   round(row["automation_raw"], 2), round(row["augmentation_raw"], 2),
+                                   round(row["none_raw"], 2), round(row["automation_pct"], 2)))
+
+    print(f"\n{'=' * 70}\nFILE SUMMARY -- copy into NOTES.md\n{'=' * 70}")
+    print(pd.DataFrame(size_rows, columns=["Release", "Platform", "File", "MB", "Rows"])
+          .to_markdown(index=False))
+
+    print(f"\n{'=' * 70}\nAUTOMATION SPLIT BY RELEASE -- copy into NOTES.md / PROFILE.md\n{'=' * 70}")
+    print(pd.DataFrame(split_rows, columns=[
+        "Release", "Period", "Platform", "Automation (all)", "Augmentation (all)",
+        "None", "Automation (classified)",
+    ]).to_markdown(index=False))
+
     print(f"\n{'=' * 70}\nCLAIMED VS. ACTUAL -- copy into NOTES.md\n{'=' * 70}")
-    all_rows = (
-        compare_to_targets("claude_ai", actual_claude)
-        + compare_to_targets("api", actual_api)
-    )
-    summary = pd.DataFrame(
-        all_rows,
-        columns=["Platform", "Metric", "Claimed", "Actual", "Diff (pp)", "Status"],
-    )
-    print(summary.to_markdown(index=False))
- 
- 
+    rows = []
+    for rel, platform, measure, claimed, quote in TARGETS:
+        for period, actual in measures.get((rel, platform), {}).get(measure, {}).items():
+            diff = abs(actual - claimed)
+            status = "Match" if diff <= TOLERANCE_PCT_POINTS else "MISMATCH"
+            rows.append((rel, platform, measure, quote, claimed, round(actual, 2), round(diff, 2), status))
+    print(pd.DataFrame(rows, columns=[
+        "Release", "Platform", "Measure", "Report says", "Claimed", "Actual", "Diff (pp)", "Status",
+    ]).to_markdown(index=False))
+    print(f"\n  (O*NET task target from original paper, p.18: {ONET_TASK_TARGET:,} total tasks. "
+          f"Only tasks with observed usage above the privacy threshold appear, so lower "
+          f"counts above are expected, not a mismatch.)")
+
+
 if __name__ == "__main__":
     main()
