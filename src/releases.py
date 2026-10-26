@@ -23,10 +23,16 @@ import pandas as pd
 
 DATA_DIR = Path("data")
 
+# Pinned Hugging Face dataset version (commit of 2026-09-30). Every file in
+# data/ was checked byte-for-byte (sha256) against this commit; see fetch.py.
+HF_REPO = "Anthropic/EconomicIndex"
+HF_REVISION = "4e5f69fab13a9c3f7d0dcc31a6f893a9818738f6"
+
 RELEASES = [
     {
         "release": "2025-09-15",
         "schema": "raw",
+        "hf_dir": "release_2025_09_15/data/intermediate",
         "files": {
             "claude_ai": DATA_DIR / "aei_raw_claude_ai_2025-08-04_to_2025-08-11.csv",
             "api": DATA_DIR / "aei_raw_1p_api_2025-08-04_to_2025-08-11.csv",
@@ -35,6 +41,7 @@ RELEASES = [
     {
         "release": "2026-01-15",
         "schema": "raw",
+        "hf_dir": "release_2026_01_15/data/intermediate",
         "files": {
             "claude_ai": DATA_DIR / "aei_raw_claude_ai_2025-11-13_to_2025-11-20.csv",
             "api": DATA_DIR / "aei_raw_1p_api_2025-11-13_to_2025-11-20.csv",
@@ -43,6 +50,7 @@ RELEASES = [
     {
         "release": "2026-03-24",
         "schema": "raw",
+        "hf_dir": "release_2026_03_24/data",
         "files": {
             "claude_ai": DATA_DIR / "aei_raw_claude_ai_2026-02-05_to_2026-02-12.csv",
             "api": DATA_DIR / "aei_raw_1p_api_2026-02-05_to_2026-02-12.csv",
@@ -51,6 +59,7 @@ RELEASES = [
     {
         "release": "2026-06-26",
         "schema": "monthly",
+        "hf_dir": "release_2026_06_26/data",
         "files": {
             "claude_ai": DATA_DIR / "aei_claude_ai_2026-06-26.csv",
             "api": DATA_DIR / "aei_1p_api_2026-06-26.csv",
@@ -170,3 +179,120 @@ def use_case_shares(df: pd.DataFrame, release: dict) -> pd.DataFrame:
         wide = wide.rename(columns=lambda m: m.removeprefix("use_case_").removesuffix("_pct"))
     wide.index = [period_label(release, d) for d in wide.index]
     return wide
+
+
+# ---- Task-level helpers (task mix, same-task comparison, suppression) ----
+
+ONET_REFERENCE = DATA_DIR / "reference" / "onet_task_statements_raw.xlsx"
+
+# 2018 SOC major groups (the first two digits of an O*NET-SOC code). Titles
+# match the soc_occupation major-group node_names in the 2026-06-26 files.
+SOC_MAJOR_GROUPS = {
+    "11": "Management", "13": "Business and Financial Operations",
+    "15": "Computer and Mathematical", "17": "Architecture and Engineering",
+    "19": "Life, Physical, and Social Science", "21": "Community and Social Service",
+    "23": "Legal", "25": "Educational Instruction and Library",
+    "27": "Arts, Design, Entertainment, Sports, and Media",
+    "29": "Healthcare Practitioners and Technical", "31": "Healthcare Support",
+    "33": "Protective Service", "35": "Food Preparation and Serving Related",
+    "37": "Building and Grounds Cleaning and Maintenance", "39": "Personal Care and Service",
+    "41": "Sales and Related", "43": "Office and Administrative Support",
+    "45": "Farming, Fishing, and Forestry", "47": "Construction and Extraction",
+    "49": "Installation, Maintenance, and Repair", "51": "Production",
+    "53": "Transportation and Material Moving",
+}
+
+
+def task_major_groups() -> pd.DataFrame:
+    """Raw-schema task statement (lower-cased) -> SOC major group, with a
+    weight that splits a statement shared by several major groups equally."""
+    ref = pd.read_excel(ONET_REFERENCE)
+    ref["task"] = ref["Task"].str.lower().str.strip()
+    ref["major_group"] = ref["O*NET-SOC Code"].str[:2].map(SOC_MAJOR_GROUPS)
+    pairs = ref[["task", "major_group"]].drop_duplicates()
+    pairs["weight"] = 1 / pairs.groupby("task")["major_group"].transform("size")
+    return pairs
+
+
+def major_group_mix(df: pd.DataFrame, release: dict) -> pd.DataFrame:
+    """Usage share (%) by SOC major group, one column per period.
+    Both schemas are renormalized over published, classified tasks so each
+    column sums to 100 (unpublished cells are missing rows, not zeros).
+      raw     -- task shares mapped to major groups via the O*NET reference.
+      monthly -- the release's own soc_occupation major-group rows (its task
+                 IDs only partly match the reference file, see NOTES.md)."""
+    if release["schema"] == "raw":
+        lookup = task_major_groups()
+        cols = {}
+        for period, shares in onet_task_shares(df, release).items():
+            s = shares.rename("share").rename_axis("task").reset_index()
+            s["task"] = s["task"].str.strip()
+            m = s.merge(lookup, on="task", how="left")
+            m["share"] *= m["weight"].fillna(1)
+            cols[period] = m.groupby(m["major_group"].fillna("Unmatched"))["share"].sum()
+        mix = pd.DataFrame(cols)
+    else:
+        rows = df[(df["geo_id"] == "GLOBAL") & (df["category_name"] == "soc_occupation")
+                  & (df["hierarchy_level"] == 1) & (df["metric_id"] == "pct")]
+        mix = rows.pivot_table(index="node_name", columns="date_start", values="value")
+        mix.columns = [period_label(release, d) for d in mix.columns]
+    return mix / mix.sum() * 100
+
+
+def task_automation(df: pd.DataFrame, release: dict) -> dict:
+    """{period: DataFrame indexed by task key with automation_pct (share of
+    classified conversations for that task) and usage (task share, %)}.
+    raw     -- from onet_task::collaboration counts; the per-task
+               not_classified bucket (privacy-suppressed patterns) and none
+               are excluded from the denominator.
+    monthly -- from the per-task collaboration_bucket_automation_pct."""
+    shares = onet_task_shares(df, release)
+    out = {}
+    if release["schema"] == "raw":
+        rows = df[(df["geography"] == "global") & (df["facet"] == "onet_task::collaboration")
+                  & (df["variable"] == "onet_task_collaboration_count")]
+        split = rows["cluster_name"].str.rsplit("::", n=1, expand=True)
+        rows = rows.assign(task=split[0], pattern=split[1])
+        for start, g in rows.groupby("date_start"):
+            counts = g.pivot_table(index="task", columns="pattern", values="value",
+                                   aggfunc="sum", fill_value=0)
+            counts = counts.reindex(columns=PATTERNS + ["not_classified"], fill_value=0)
+            auto = counts[AUTOMATION_PATTERNS].sum(axis=1)
+            classified = auto + counts[AUGMENTATION_PATTERNS].sum(axis=1)
+            period = period_label(release, start)
+            t = pd.DataFrame({
+                "automation_pct": auto / classified * 100,
+                "classified_n": classified,
+                "suppressed_n": counts["not_classified"],
+            })
+            t = t[(classified > 0) & ~t.index.isin(NON_TASKS)]
+            out[period] = t.join(shares[period].rename("usage"), how="left")
+    else:
+        rows = df[(df["geo_id"] == "GLOBAL") & (df["category_name"] == "onet")
+                  & (df["hierarchy_level"] == 0)
+                  & (df["metric_id"] == "collaboration_bucket_automation_pct")]
+        for start, g in rows.groupby("date_start"):
+            period = period_label(release, start)
+            t = g.set_index("node_external_id")[["value"]].rename(columns={"value": "automation_pct"})
+            out[period] = t.join(shares[period].rename("usage"), how="left")
+    return out
+
+
+def unpublished_task_share(df: pd.DataFrame, release: dict) -> dict:
+    """{period: % of conversations with no published task}. raw: the none
+    and not_classified task rows; monthly: 100 minus the published task shares."""
+    if release["schema"] == "raw":
+        rows = df[(df["geography"] == "global") & (df["facet"] == "onet_task")
+                  & (df["variable"] == "onet_task_pct") & (df["cluster_name"].isin(NON_TASKS))]
+        return {period_label(release, s): g["value"].sum() for s, g in rows.groupby("date_start")}
+    return {p: 100 - s.sum() for p, s in onet_task_shares(df, release).items()}
+
+
+def sample_size(df: pd.DataFrame, release: dict):
+    """Raw schema only: total records = sum of global collaboration_count.
+    The monthly schema publishes shares only, so this returns None."""
+    if release["schema"] != "raw":
+        return None
+    rows = df[(df["geography"] == "global") & (df["facet"] == "collaboration")
+              & (df["variable"] == "collaboration_count")]
+    return rows["value"].sum()
