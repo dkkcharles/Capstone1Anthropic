@@ -54,3 +54,32 @@
   - Decompose the gap into task mix vs. behavior on the same task, per release
   - Track what changed for the same tasks across releases, within each regime
   - Start modeling
+
+**Week of Nov 2nd 2026:
+- Asked whether the June 2026 release could be split into weeks to compare with the weekly
+  releases: not possible, since the files only contain monthly totals (April, May). The regime
+  break is also caused by scope and method changes, not window length.
+- Hypothesis testing for measurement asymmetry (src/hypothesis_tests.py, NOTES.md §9):
+  paired Wilcoxon signed-rank tests on tasks published on both platforms, alpha = 0.05
+  - Test 1: the API shows less feedback loop on the same task (reject H0 in all 5 periods),
+    so multi-turn behavior is under-recorded on the API (the asymmetry is real)
+  - Test 2: using only single-turn patterns, the API is still 18–26 pp more automated on the
+    same task (reject H0 in all 5 periods), so the asymmetry does not explain the gap
+  - Test 3: the API delegates LESS decision-making (AI autonomy) on 90–96% of shared tasks
+    (reject H0 in all 4 periods), so businesses hand off execution, not judgement
+  - Robustness: same decisions with no minimum task size and with a Bonferroni correction
+- Found a format quirk: the 2026-03-24 release appends "::value" to task names in its
+  numeric facets, which at first left zero tasks matched for that period
+- Built the harmonization table into a script (src/harmonize.py, NOTES.md §3): one task ×
+  platform × period dataset (21,037 rows) with one automation definition, consistent units,
+  occupation major groups and a regime indicator
+  - Task characteristics only exist from Nov 2025, so models that use them drop Aug 2025
+  - Only ~half of tasks (60–69% of usage) can be matched across the June 2026 regime break
+  - Several variables jump at the break on one platform only (e.g. Claude.ai multitasking
+    8.8% → 22.8%), so levels are only compared within a regime
+- Moved the hypothesis tests onto the harmonized dataset so every analysis uses the same
+  data; all decisions unchanged (small differences from one duplicate task name in Apr 2026)
+- Upcoming:
+  - Regression with task fixed effects (gap on the same tasks, and how it changes by period)
+  - Formal decomposition of the gap into task mix vs. behavior on the same task, per release
+  - Track what changed for the same tasks across releases, within each regime

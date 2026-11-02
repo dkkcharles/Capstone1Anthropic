@@ -296,3 +296,60 @@ def sample_size(df: pd.DataFrame, release: dict):
     rows = df[(df["geography"] == "global") & (df["facet"] == "collaboration")
               & (df["variable"] == "collaboration_count")]
     return rows["value"].sum()
+
+
+# ---- Per-task pattern shares and numeric primitives (hypothesis_tests.py) --
+
+def task_patterns(df: pd.DataFrame, release: dict) -> dict:
+    """{period: DataFrame indexed by task key} with each of the five patterns
+    as a share (%) of that task's classified conversations (none and
+    not_classified excluded, so the five sum to 100), plus usage (task
+    share, %) and, for the raw schema, classified_n (record count)."""
+    shares = onet_task_shares(df, release)
+    five = AUTOMATION_PATTERNS + AUGMENTATION_PATTERNS
+    out = {}
+    if release["schema"] == "raw":
+        rows = df[(df["geography"] == "global") & (df["facet"] == "onet_task::collaboration")
+                  & (df["variable"] == "onet_task_collaboration_count")]
+        split = rows["cluster_name"].str.rsplit("::", n=1, expand=True)
+        rows = rows.assign(task=split[0], pattern=split[1])
+        for start, g in rows.groupby("date_start"):
+            counts = g.pivot_table(index="task", columns="pattern", values="value",
+                                   aggfunc="sum", fill_value=0).reindex(columns=five, fill_value=0)
+            n = counts.sum(axis=1)
+            t = counts[n > 0].div(n[n > 0], axis=0) * 100
+            t = t[~t.index.isin(NON_TASKS)].assign(classified_n=n)
+            period = period_label(release, start)
+            out[period] = t.join(shares[period].rename("usage"), how="left")
+    else:
+        metrics = {m: p for m, p in MONTHLY_PATTERN_METRICS.items() if p in five}
+        rows = df[(df["geo_id"] == "GLOBAL") & (df["category_name"] == "onet")
+                  & (df["hierarchy_level"] == 0) & (df["metric_id"].isin(metrics))]
+        for start, g in rows.groupby("date_start"):
+            wide = g.pivot_table(index="node_external_id", columns="metric_id", values="value")
+            wide = wide.rename(columns=metrics).reindex(columns=five).fillna(0)
+            total = wide.sum(axis=1)
+            t = wide[total > 0].div(total[total > 0], axis=0) * 100
+            period = period_label(release, start)
+            out[period] = t.join(shares[period].rename("usage"), how="left")
+    return out
+
+
+def task_mean(df: pd.DataFrame, release: dict, primitive: str) -> dict:
+    """{period: Series of the per-task mean of a numeric primitive, e.g.
+    'ai_autonomy'}. Empty for releases that do not have it (2025-09-15)."""
+    if release["schema"] == "raw":
+        rows = df[(df["geography"] == "global") & (df["facet"] == f"onet_task::{primitive}")
+                  & (df["variable"] == f"onet_task_{primitive}_mean")]
+        # The 2026-03-24 files append "::value" to the task name in numeric
+        # intersection facets; earlier releases do not.
+        rows = rows.assign(task=rows["cluster_name"].str.removesuffix("::value"))
+        key = "task"
+    else:
+        rows = df[(df["geo_id"] == "GLOBAL") & (df["category_name"] == "onet")
+                  & (df["hierarchy_level"] == 0) & (df["metric_id"] == f"{primitive}_mean")]
+        key = "node_external_id"
+    return {
+        period_label(release, start): g.set_index(key)["value"]
+        for start, g in rows.groupby("date_start")
+    }

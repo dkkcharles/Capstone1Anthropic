@@ -28,6 +28,9 @@ venv/Scripts/python src/fetch.py
 venv/Scripts/python src/inventory.py
 venv/Scripts/python src/raw_examples.py
 venv/Scripts/python src/exploratory.py
+venv/Scripts/python src/hypothesis_tests.py
+venv/Scripts/python src/harmonize.py
+venv/Scripts/python src/regression.py
 ```
 
 - `src/fetch.py`: downloads the data into git-ignored `data/` at the pinned commit and verifies checksums.
@@ -35,5 +38,8 @@ venv/Scripts/python src/exploratory.py
 - `src/inventory.py`: Step 4 inventory and claimed-vs-actual checks.
 - `src/raw_examples.py`: the Step 5 slices in `NOTES.md`.
 - `src/exploratory.py`: the figures in `PROFILE.md`.
+- `src/hypothesis_tests.py`: the measurement-asymmetry tests in `NOTES.md` §9.
+- `src/harmonize.py`: builds the harmonized task × platform × period panel (`data/processed/task_panel.csv`) used by the regression.
+- `src/regression.py`: weighted regressions on the harmonized panel (same-task gap per period, predictors of automation and of the gap).
 
 Write-ups: `NOTES.md` (provenance, verification, harmonization, raw examples) and `PROFILE.md` (exploratory profile).
