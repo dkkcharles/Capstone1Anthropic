@@ -34,7 +34,7 @@
 **Week of Oct 12th 2026: No meeting
 - None
 
-**Week of Oct 19th 2026:
+**Week of Oct 19th 2026: Missed meeting
 - Pinned the dataset to one Hugging Face commit and added src/fetch.py with checksum checks
 - Investigated the June jump: the March 2026 report's API data includes Claude Code, the June
   release excludes it. That explains most of the jump, so I treat the June release as a
