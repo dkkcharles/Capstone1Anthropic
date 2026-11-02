@@ -49,14 +49,7 @@
 - Cut the geography section: API data is global-only, so geography can't explain the gap
 
 **Week of Oct 26th 2026:
-- Upcoming:
-  - Build the harmonization table into a script (one automation definition across releases)
-  - Decompose the gap into task mix vs. behavior on the same task, per release
-  - Track what changed for the same tasks across releases, within each regime
-  - Start modeling
-
-**Week of Nov 2nd 2026:
-- Asked whether the June 2026 release could be split into weeks to compare with the weekly
+- Debated whether the June 2026 release could be split into weeks to compare with the weekly
   releases: not possible, since the files only contain monthly totals (April, May). The regime
   break is also caused by scope and method changes, not window length.
 - Hypothesis testing for measurement asymmetry (src/hypothesis_tests.py, NOTES.md §9):
@@ -79,6 +72,8 @@
     8.8% → 22.8%), so levels are only compared within a regime
 - Moved the hypothesis tests onto the harmonized dataset so every analysis uses the same
   data; all decisions unchanged (small differences from one duplicate task name in Apr 2026)
+
+**Week of Nov 2nd 2026:
 - Upcoming:
   - Regression with task fixed effects (gap on the same tasks, and how it changes by period)
   - Formal decomposition of the gap into task mix vs. behavior on the same task, per release
