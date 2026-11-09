@@ -74,7 +74,9 @@
   data; all decisions unchanged (small differences from one duplicate task name in Apr 2026)
 
 **Week of Nov 2nd 2026:
+- Regression with task fixed effects (gap on the same tasks, and how it changes by period)
+- Formal decomposition of the gap into task mix vs. behavior on the same task, per release
+  
+**Week of Nov 9th 2026:
 - Upcoming:
-  - Regression with task fixed effects (gap on the same tasks, and how it changes by period)
-  - Formal decomposition of the gap into task mix vs. behavior on the same task, per release
   - Track what changed for the same tasks across releases, within each regime

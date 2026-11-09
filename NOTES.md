@@ -622,3 +622,92 @@ The other interactions are significant in only one regime (education, human-with
 - **Linear model on a bounded outcome.** Automation is between 0 and 100, and many weekly tasks sit at 0 or 100. A fractional-logit model is a natural robustness check, not yet run.
 - **Weighting matters in the weekly releases.** Weighted and unweighted gaps differ by 9–14 pp, so whether the result describes a typical conversation (weighted) or a typical task (unweighted) must be stated.
 - **Rounding.** The monthly usage weights for tasks shown as 0.00% are approximated (0.0025%).
+
+## 11. Decomposition of the gap (`src/decomposition.py`)
+
+### Motivation
+Model 1 (§10) estimated that the same-task gap is 81–83% of the overall gap. That comparison was approximate, because the two gaps weight tasks differently. The decomposition makes it exact: it splits each period's gap into parts that add up to the whole, so the research question's "on the same tasks" can be answered with a number. Do businesses automate more because they use Claude for different tasks, or because they automate the same tasks more?
+
+### Method
+**Rebuilding the gap from tasks.** For platform *p*, the automation share is rebuilt from published tasks as
+
+  A*ₚ* = Σ*ᵢ* w*ₚᵢ* · a*ₚᵢ*
+
+- a*ₚᵢ* is task *i*'s automation share of classified conversations.
+- w*ₚᵢ* is task *i*'s share of the platform's classified conversations: usage × (1 − none share), renormalized over published tasks. This keeps the decomposition on the same "classified" definition used everywhere else.
+- As in §10, monthly tasks shown as 0.00% usage get 0.0025%, the midpoint of the rounding interval.
+
+The rebuilt gap G = A_API − A_Claude.ai splits exactly into three parts. S is the set of tasks published on both platforms in the period, and w̃ are weights renormalized within S:
+
+| Part | Formula | Meaning |
+|:--|:--|:--|
+| **Behavior** | Σ*ᵢ∈S* w̃_ref,*ᵢ* · (a_API,*ᵢ* − a_Claude,*ᵢ*) | The platforms automate the same task differently. |
+| **Task mix** | Σ*ᵢ∈S* (w̃_API,*ᵢ* − w̃_Claude,*ᵢ*) · a_ref,*ᵢ* | The platforms spend different shares of their usage on each shared task. |
+| **One platform only** | (A_API − A_API^S) − (A_Claude − A_Claude^S) | Tasks published on only one platform. |
+
+**Which platform to start from.** The split between behavior and mix depends on which platform supplies the reference weights and rates (the index-number problem). Both orderings are computed:
+- **Ordering A:** mix at Claude.ai's automation rates, behavior at the API's usage weights.
+- **Ordering B:** mix at the API's rates, behavior at Claude.ai's weights.
+
+Their average (the Shapley split) is the headline result. It still adds up exactly.
+
+**Uncertainty.** 95% percentile intervals from 1,000 bootstrap resamples of tasks within each period. Sampling error in the ~1M underlying conversations is negligible (`PROFILE.md`), so the intervals show how much the result depends on which tasks happen to be published.
+
+### Results
+**Check against published figures.** The gap rebuilt from published tasks is within 2 pp of the published global gap in every period:
+- weekly releases: rebuilt 1.0–2.0 pp *above* published;
+- monthly release: rebuilt 0.3–0.4 pp *below* published.
+
+Unpublished tasks therefore change little. Shared tasks carry 92–97% of each platform's classified usage.
+
+**Decomposition** (pp, Shapley average, 95% bootstrap interval in brackets):
+
+| Period | Published gap | Rebuilt gap | Behavior on the same task | Task mix | One platform only | Behavior share | Mix share |
+|:--|--:|--:|:--|:--|:--|--:|--:|
+| Aug 2025 | 35.10 | 36.39 | 29.13 [26.9, 32.1] | 5.94 [4.1, 7.8] | 1.32 [1.1, 1.7] | 80.1% | 16.3% |
+| Nov 2025 | 37.13 | 38.13 | 30.11 [26.0, 35.0] | 6.52 [4.1, 8.9] | 1.51 [1.2, 1.8] | 79.0% | 17.1% |
+| Feb 2026 | 34.20 | 36.16 | 27.99 [24.6, 31.5] | 6.77 [4.0, 9.1] | 1.41 [1.1, 1.7] | 77.4% | 18.7% |
+| Apr 2026 | 44.69 | 44.29 | 36.56 [34.0, 39.1] | 7.54 [5.7, 9.5] | 0.19 [0.0, 0.4] | 82.5% | 17.0% |
+| May 2026 | 45.59 | 45.27 | 37.05 [34.6, 39.3] | 7.84 [6.1, 9.6] | 0.38 [0.1, 0.7] | 81.8% | 17.3% |
+
+![Decomposition of the automation gap](figures/gap_decomposition.png)
+
+*Figure: each period's gap split into behavior on the same task (blue), task mix among shared tasks (orange) and tasks on one platform only (grey); the black mark is the rebuilt gap. Source: `src/decomposition.py`.*
+
+**Both orderings** (pp):
+
+| Period | Shared-task gap | Mix (A) | Behavior (A) | Mix (B) | Behavior (B) |
+|:--|--:|--:|--:|--:|--:|
+| Aug 2025 | 35.07 | 6.95 | 28.12 | 4.93 | 30.15 |
+| Nov 2025 | 36.62 | 7.04 | 29.58 | 5.99 | 30.64 |
+| Feb 2026 | 34.75 | 8.38 | 26.37 | 5.15 | 29.60 |
+| Apr 2026 | 44.10 | 8.27 | 35.82 | 6.80 | 37.30 |
+| May 2026 | 44.88 | 8.76 | 36.12 | 6.91 | 37.98 |
+
+Behavior is at least 26 pp and task mix at most 9 pp under either ordering, so the conclusion doesn't depend on the choice.
+
+**Change within each regime** (pp, later period minus earlier):
+
+| From → To | Gap | Behavior | Task mix | One platform only |
+|:--|--:|--:|--:|--:|
+| Aug 2025 → Nov 2025 | +1.74 | +0.97 | +0.58 | +0.19 |
+| Nov 2025 → Feb 2026 | −1.97 | −2.12 | +0.25 | −0.10 |
+| Apr 2026 → May 2026 | +0.97 | +0.49 | +0.30 | +0.19 |
+
+### Conclusion
+- **The gap is mostly behavior on the same task.** In every period, 77–83% of the API vs. Claude.ai gap comes from businesses automating the *same* tasks more than consumers. In the weekly releases that is 28–30 pp of a 36–38 pp gap; in the monthly release, 37 pp of 44–45 pp.
+  - The behavior part's 95% intervals stay well clear of 0 and of the task-mix intervals in every period.
+  - Behavior's lowest interval end in any period (24.6 pp) is about three times task mix's highest (9.6 pp).
+- **Task mix is a real but secondary part,** 16–19% (6–8 pp). Its intervals also exclude 0. Businesses do use Claude more for tasks that tend to be automated, such as coding, but this explains under a fifth of the gap.
+- **Tasks on only one platform barely matter:** 4% or less. In April 2026 the interval reaches 0.
+- **The shares are stable across periods and regimes.** Even though the gap is about 8 pp larger in the monthly release, the split barely changes (77–80% weekly, 82–83% monthly). The method change raised the gap without changing *where* it comes from.
+- **Within each regime, the small movements in the gap are mostly behavior.** The Nov 2025 → Feb 2026 drop (−2.0 pp) is entirely behavior (−2.1 pp); task mix moved slightly the other way (+0.3 pp). Task mix rose a little in every step (+0.25 to +0.58 pp).
+
+This confirms Model 1's approximate 81–83% with an exact split: the gap is mainly about *how* businesses and consumers use Claude on the same task, not *which* tasks they bring to it.
+
+### Limitations
+- **Choice of reference platform.** The behavior/mix split moves by 1.1–3.2 pp depending on which platform's figures are used; the Shapley average is a convention. The conclusion holds under both orderings.
+- **Published tasks only.** The decomposition covers tasks above the privacy threshold. The rebuilt gap is within 2 pp of the published gap, but how hidden tasks split between behavior and mix is unknown.
+- **Weights are approximate.** Classified usage is estimated as usage × (1 − none share), which ignores each task's not_classified records. Monthly weights for tasks shown as 0.00% are approximated.
+- **The task catalog changes at the regime break.** Shares are comparable across regimes, but levels are not, for the same reasons as in §3.
+- **Descriptive, not causal.** "Behavior" is everything that differs between platforms on the same task: who the users are, what they are building, and how the API records interactions (§9 Test 1), not only a choice to delegate.

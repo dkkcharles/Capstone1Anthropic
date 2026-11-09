@@ -31,6 +31,7 @@ venv/Scripts/python src/exploratory.py
 venv/Scripts/python src/hypothesis_tests.py
 venv/Scripts/python src/harmonize.py
 venv/Scripts/python src/regression.py
+venv/Scripts/python src/decomposition.py
 ```
 
 - `src/fetch.py`: downloads the data into git-ignored `data/` at the pinned commit and verifies checksums.
@@ -41,5 +42,6 @@ venv/Scripts/python src/regression.py
 - `src/hypothesis_tests.py`: the measurement-asymmetry tests in `NOTES.md` §9.
 - `src/harmonize.py`: builds the harmonized task × platform × period panel (`data/processed/task_panel.csv`) used by the regression.
 - `src/regression.py`: weighted regressions on the harmonized panel (same-task gap per period, predictors of automation and of the gap).
+- `src/decomposition.py`: splits each period's gap into behavior on the same task, task mix, and tasks on one platform only.
 
 Write-ups: `NOTES.md` (provenance, verification, harmonization, raw examples) and `PROFILE.md` (exploratory profile).
